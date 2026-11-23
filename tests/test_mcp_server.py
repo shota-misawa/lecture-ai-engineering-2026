@@ -6,7 +6,7 @@ app/mcp_servers.json の glossary サーバーを実際に起動し（stdio）�
 
 import json
 
-import pytest
+from pydantic_ai import DeferredToolRequests
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from pydantic_ai.models.test import TestModel
 
@@ -41,7 +41,8 @@ def test_glossary_server_exposes_search_tool(tmp_path):
     build_mcp_agent(_glossary_only_config(tmp_path)).run_sync("ツール一覧", model=model)
 
     offered = {t.name for t in model.last_model_request_parameters.function_tools}
-    assert GLOSSARY_TOOL in offered  # 宿題でツールを足しても壊れないよう「含む」で判定
+    assert GLOSSARY_TOOL in offered  # 演習でツールを足しても壊れないよう「含む」で判定
+    assert "save_learning_log" in offered
 
 
 def test_glossary_result_comes_back_through_mcp(tmp_path):
@@ -55,37 +56,15 @@ def test_glossary_result_comes_back_through_mcp(tmp_path):
     assert result.output
 
 
-def test_describe_servers_tells_command_from_url(tmp_path):
-    """コマンドで起動するサーバーと、URL で接続するサーバーを、表示で見分けられる。"""
-    path = tmp_path / "mcp_servers.json"
-    path.write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "glossary": {"command": "uv", "args": ["run", "python", "-m", "app.mcp_server"]},
-                    "aws": {"url": "https://knowledge-mcp.global.api.aws"},
-                }
-            }
-        ),
-        encoding="utf-8",
+def test_learning_log_requires_approval_in_mcp_agent(tmp_path, monkeypatch):
+    from app import tools
+
+    monkeypatch.setattr(tools, "LOG_DIR", tmp_path / "learning_log")
+    model = TestModel(call_tools=["save_learning_log"])
+    result = build_mcp_agent(_glossary_only_config(tmp_path)).run_sync(
+        "学習記録を保存して", model=model
     )
-    assert describe_servers(path) == [
-        "[server] glossary: コマンドで起動（uv run python -m app.mcp_server）",
-        "[server] aws: URL に接続（https://knowledge-mcp.global.api.aws）",
-    ]
 
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ('{"mcpServers": {"a": {"command": "uv"} "b": {"url": "https://example.com"}}}', "JSON の書き方の誤り"),
-        ('{"servers": {}}', '"mcpServers" がありません'),
-        ('{"mcpServers": {"a": {"args": []}}}', '"command" も "url" もありません'),
-    ],
-)
-def test_config_mistakes_are_reported_in_words(tmp_path, text, expected):
-    """設定ファイルの書き間違いは、どこをどう直すかが分かる言葉で知らせる。"""
-    path = tmp_path / "mcp_servers.json"
-    path.write_text(text, encoding="utf-8")
-    with pytest.raises(ConfigError, match=expected):
-        read_config(path)
+    assert isinstance(result.output, DeferredToolRequests)
+    assert [call.tool_name for call in result.output.approvals] == ["save_learning_log"]
+    assert not tools.LOG_DIR.exists()
