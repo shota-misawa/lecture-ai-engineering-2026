@@ -10,7 +10,13 @@ from pydantic_ai import DeferredToolRequests
 from pydantic_ai.messages import ToolCallPart, ToolReturnPart
 from pydantic_ai.models.test import TestModel
 
-from app.agent import MCP_CONFIG, build_mcp_agent
+from app.mcp_agent import (
+    MCP_CONFIG,
+    ConfigError,
+    build_mcp_agent,
+    describe_servers,
+    read_config,
+)
 
 GLOSSARY_TOOL = "glossary_search_glossary"  # 設定ファイルのサーバー名 "glossary" が前に付く
 
